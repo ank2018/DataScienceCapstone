@@ -1,0 +1,276 @@
+---
+title: "Capstone Project"
+author: "AD"
+date: "June 2019"
+output: html_document
+---
+
+## Introduction
+This is a Capstone Project to build an application to predict next word using NLP.
+
+The goal of this exercise is to create a product to highlight the prediction algorithm and to provide an interface that can be accessed by others. 
+
+1.	A Shiny app that takes as input a phrase (multiple words) in a text box input and outputs a prediction of the next word. 
+
+2. A slide deck presentation. 
+
+3. The following steps have been considered prior to building the app.
+* Exploratory Data Analysis.
+* Getting and Cleaning Data 
+* Tokenization
+
+## Load Libraries
+```{r, message=FALSE,warning=FALSE}
+library(tm)
+library(ggplot2)
+library(RWeka)
+library(R.utils)
+library(dplyr)
+library(wordcloud)
+library(corpus)
+library(ngram)
+library(NLP)
+library(openNLP)
+library(SnowballC)
+```
+## Download the data from the Coursera site Capstone Dataset
+```{r, message=FALSE,warning=FALSE}
+setwd("C:/CapstoneCoursera")
+
+traindata <- download.file("https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip","datafile.zip")
+unzip("datafile.zip")
+```
+
+## Use en_US Folder to Read the Lines in English
+* en_US.twitter.txt
+* en_US.blogs.txt
+* en_US.news.txt
+```{r, message=FALSE,warning=FALSE}
+rtwit <- file("C:/CapstoneCoursera/final/en_US/en_US.twitter.txt", "rb",encoding = "UTF-8")
+readrtwit <- readLines(rtwit, warn = FALSE)
+
+
+rblog <- file("C:/CapstoneCoursera/final/en_US/en_US.blogs.txt","rb",encoding = "UTF-8")
+readrblog <- readLines(rblog, warn = FALSE)
+
+
+rnews <- file("C:/CapstoneCoursera/final/en_US/en_US.news.txt","rb",encoding = "UTF-8")
+readrnews <- readLines(rnews, warn = FALSE)
+```
+
+## Exploratory Data Analysis
+Basic summaries of the three files en_US.twitter.txt,en_US.blogs.txt,en_US.news.txt
+* Size
+* Number of Lines
+* Word count
+```{r, message=FALSE,warning=FALSE}
+twit_size <- format(object.size(readrtwit), "MB")
+twit_lines <- length(readrtwit)
+twit_word <- wordcount(readrtwit, sep = " ", count.function = sum)
+
+blog_size <- format(object.size(readrblog), "MB")
+blog_lines <- length(readrblog)
+blog_word <- wordcount(readrblog, sep = " ", count.function = sum)
+
+news_size <- format(object.size(readrnews), "MB")
+news_lines <- length(readrnews)
+news_word <- wordcount(readrblog, sep = " ", count.function = sum)
+
+file_size <- c(twit_size,blog_size,news_size)
+file_linescount <- c(twit_lines,blog_lines,news_lines)
+file_wordcount <- c(twit_word,blog_word,news_word)
+
+df <- data.frame("Files " = c("Twitter","Blog","News"),file_size,file_linescount,file_wordcount)
+
+df
+```
+
+## Getting and Cleaning the Data
+
+The data is huge, hence I am considering a very small subset. This subset is further cleaned.
+```{r, message=FALSE,warning=FALSE}
+set.seed(62345)
+
+eng_readrtwit <- iconv(readrtwit,"latin1","ASCII",sub = "")
+eng_readrblog <- iconv(readrblog,"latin1","ASCII",sub = "")
+eng_readrnews <- iconv(readrnews,"latin1","ASCII",sub = "")
+
+sampleTotal <- c(sample(eng_readrtwit,length(eng_readrtwit)*0.001),
+                 sample(eng_readrblog,length(eng_readrblog)*0.001),
+                 sample(eng_readrnews,length(eng_readrnews)*0.001))
+
+length(sampleTotal)
+writeLines(sampleTotal, "C:/CapstoneCoursera/samplefile.txt")
+
+textCon <- file("C:/CapstoneCoursera/samplefile.txt")
+
+
+```
+
+## Convert the data into Corpus
+```{r, message=FALSE,warning=FALSE}
+corpdata <- readLines(textCon)
+corpdata <- VCorpus(VectorSource(corpdata))
+```
+## Clean Data
+```{r, message=FALSE,warning=FALSE}
+
+corpdata <- tm_map(corpdata, content_transformer(function(x) iconv(x, to="UTF-8", sub="byte")))
+corpdata <- tm_map(corpdata, content_transformer(tolower), lazy = TRUE)
+
+removeNumPunct <- function(x) gsub("[^[:alpha:][:space:]][[:punct:]]*","",x)
+corpdata <- tm_map(corpdata, content_transformer(removeNumPunct), lazy = TRUE)
+
+
+removeURL <- function(x) gsub("http[[:alnum:]]*", "", x)
+corpdata <- tm_map(corpdata, content_transformer(removeURL))
+
+corpdata <- tm_map(corpdata, removePunctuation)
+
+corpdata <- tm_map(corpdata, stripWhitespace)
+corpdata <- tm_map(corpdata, removeNumbers)
+corpdata <- tm_map(corpdata, PlainTextDocument)
+```
+```{r, message=FALSE,warning=FALSE}
+
+saveRDS(corpdata, file = "C:/CapstoneCoursera/finalCorpus.RData")
+
+final_corpdata <- readRDS("C:/CapstoneCoursera/finalCorpus.RData")
+final_corpdata_df <-data.frame(text=unlist(sapply(final_corpdata,`[`,"content")),stringsAsFactors= FALSE)
+```
+
+## Tokenize Using TermDocumentMatrix 
+Use TermDocumentMatrix to tokenize the corpus data using Ngram Tokenizer
+Tokenization breaks the sentences into a set of words or tokens based on the ngram selections.
+
+* One Gram
+Shows a single word and its frequency of use
+```{r, message=FALSE,warning=FALSE}
+onegram <- function(x) NGramTokenizer(x,Weka_control(min = 1, max = 1))
+onegrammat <- TermDocumentMatrix(corpdata,control = list(tokenize=onegram))
+onegrammat
+onegramfreq <-findFreqTerms(onegrammat,lowfreq=2)
+
+onegramsum<-rowSums(as.matrix(onegrammat[onegramfreq,]))
+onegramsortdf<-data.frame(Word=names(onegramsum),frequency=onegramsum)
+onegramsort<-onegramsortdf[order(-onegramsortdf$frequency),]
+head(onegramsort)
+```
+
+```{r, message=FALSE,warning=FALSE}
+write.csv(onegramsortdf[onegramsortdf$frequency > 1,],"C:/CapstoneCoursera/Milestone report/onegram.csv",row.names = F)
+onegramsortr <- read.csv("C:/CapstoneCoursera/Milestone report/onegram.csv",stringsAsFactors = F)
+saveRDS(onegramsortr,file = "C:/CapstoneCoursera/ShinyApp/onegram.RData")
+```
+
+* Bi Gram
+Shows two words and its frequency of use
+```{r, message=FALSE,warning=FALSE}
+bigram <- function(x) NGramTokenizer(x,Weka_control(min = 2, max = 2))
+bigrammat <- TermDocumentMatrix(corpdata,control = list(tokenize=bigram))
+bigrammat
+bigramfreq <-findFreqTerms(bigrammat,lowfreq=2)
+
+bigramsum<-rowSums(as.matrix(bigrammat[bigramfreq,]))
+bigramsortdf<-data.frame(Word=names(bigramsum),frequency=bigramsum)
+bigramsort<-bigramsortdf[order(-bigramsortdf$frequency),]
+head(bigramsort)
+
+bigramsortdf$Word <- as.character(bigramsortdf$Word)
+bisplit <- strsplit(bigramsortdf$Word,split = " ")
+bigramsortdf <- transform(bigramsortdf, one = sapply(bisplit,"[[",1), two = sapply(bisplit,"[[",2))
+bigramsortdf <- data.frame(word1=bigramsortdf$one,word2=bigramsortdf$two,frequency=bigramsortdf$frequency,stringsAsFactors = FALSE)
+
+
+```
+
+```{r, message=FALSE,warning=FALSE}
+write.csv(bigramsortdf[bigramsortdf$frequency > 1,],"C:/CapstoneCoursera/Milestone report/bigram.csv",row.names = F)
+bigramsortr <- read.csv("C:/CapstoneCoursera/Milestone report/bigram.csv",stringsAsFactors = F)
+saveRDS(bigramsortr,file = "C:/CapstoneCoursera/ShinyApp/bigram.RData")
+```
+
+* Tri Gram
+Shows three words and its frequency of use
+```{r, message=FALSE,warning=FALSE}
+trigram <- function(x) NGramTokenizer(x,Weka_control(min = 3, max = 3))
+trigrammat <- TermDocumentMatrix(corpdata,control = list(tokenize=trigram))
+trigrammat
+trigramfreq <-findFreqTerms(trigrammat,lowfreq=2)
+
+trigramsum<-rowSums(as.matrix(trigrammat[trigramfreq,]))
+trigramsortdf<-data.frame(Word=names(trigramsum),frequency=trigramsum)
+trigramsort<-trigramsortdf[order(-trigramsortdf$frequency),]
+head(trigramsort)
+
+trigramsortdf$Word <- as.character(trigramsortdf$Word)
+trisplit <- strsplit(trigramsortdf$Word,split = " ")
+trigramsortdf <- transform(trigramsortdf, one = sapply(trisplit,"[[",1), two = sapply(trisplit,"[[",2),three = sapply(trisplit,"[[",3) )
+trigramsortdf <- data.frame(word1=trigramsortdf$one,word2=trigramsortdf$two,word3=trigramsortdf$three,frequency=trigramsortdf$frequency,stringsAsFactors = FALSE)
+
+```
+
+```{r, message=FALSE,warning=FALSE}
+write.csv(trigramsortdf[trigramsortdf$frequency > 1,],"C:/CapstoneCoursera/Milestone report/trigram.csv",row.names = F)
+trigramsortr <- read.csv("C:/CapstoneCoursera/Milestone report/trigram.csv",stringsAsFactors = F)
+saveRDS(trigramsortr,file = "C:/CapstoneCoursera/ShinyApp/trigram.RData")
+```
+
+
+* Quad Gram
+Shows three words and its frequency of use
+```{r, message=FALSE,warning=FALSE}
+quadgram <- function(x) NGramTokenizer(x,Weka_control(min = 4, max = 4))
+quadgrammat <- TermDocumentMatrix(corpdata,control = list(tokenize=quadgram))
+quadgrammat
+quadgramfreq <-findFreqTerms(quadgrammat,lowfreq=1)
+
+quadgramsum<-rowSums(as.matrix(quadgrammat[quadgramfreq,]))
+quadgramsortdf<-data.frame(Word=names(quadgramsum),frequency=quadgramsum)
+quadgramsort<-quadgramsortdf[order(-quadgramsortdf$frequency),]
+head(quadgramsort)
+
+quadgramsortdf$Word <- as.character(quadgramsortdf$Word)
+quadsplit <- strsplit(quadgramsortdf$Word,split = " ")
+quadgramsortdf <- transform(quadgramsortdf, one = sapply(quadsplit,"[[",1), two = sapply(quadsplit,"[[",2),three = sapply(quadsplit,"[[",3),four = sapply(quadsplit,"[[",4) )
+quadgramsortdf <- data.frame(word1=quadgramsortdf$one,word2=quadgramsortdf$two,word3=quadgramsortdf$three,word4=quadgramsortdf$four,frequency=quadgramsortdf$frequency,stringsAsFactors = FALSE)
+
+```
+
+```{r, message=FALSE,warning=FALSE}
+write.csv(quadgramsortdf[quadgramsortdf$frequency > 1,],"C:/CapstoneCoursera/Milestone report/quadgram.csv",row.names = F)
+quadgramsortr <- read.csv("C:/CapstoneCoursera/Milestone report/quadgram.csv",stringsAsFactors = F)
+saveRDS(quadgramsortr,file = "C:/CapstoneCoursera/ShinyApp/quadgram.RData")
+```
+
+## Exploratory Analysis
+```{r, message=FALSE,warning=FALSE}
+ggplot(data=onegramsort[1:40,], aes(x=reorder(Word,-frequency),y=frequency)) + geom_bar(stat = "identity",color = "gray", fill = "red") + coord_flip() + labs(title = "One Gram Plot") + xlab("Frequency Count") + ylab("Word")
+
+wordcloud(onegramsort$Word,onegramsort$frequency,min.freq = 100,max.words = 100,random.order = FALSE, colors = brewer.pal(8,"Dark2"))
+```
+
+```{r, message=FALSE,warning=FALSE}
+ggplot(data=bigramsort[1:40,], aes(x=reorder(Word,-frequency),y=frequency)) + geom_bar(stat = "identity",color = "gray", fill = "red") + coord_flip() + labs(title = "Bi Gram Plot") + xlab("Frequency Count") + ylab("Word")
+
+wordcloud(bigramsort$Word,bigramsort$frequency,min.freq = 100,max.words = 100,random.order = FALSE, colors = brewer.pal(8,"Dark2"))
+```
+
+```{r, message=FALSE,warning=FALSE}
+ggplot(data=trigramsort[1:40,], aes(x=reorder(Word,-frequency),y=frequency)) + geom_bar(stat = "identity",color = "gray", fill = "red") + coord_flip() + labs(title = "Tri Gram Plot") + xlab("Frequency Count") + ylab("Word")
+
+wordcloud(trigramsort$Word,trigramsort$frequency,min.freq = 100,max.words = 100,random.order = FALSE, colors = brewer.pal(8,"Dark2"))
+```
+
+```{r, message=FALSE,warning=FALSE}
+ggplot(data=quadgramsort[1:40,], aes(x=reorder(Word,-frequency),y=frequency)) + geom_bar(stat = "identity",color = "gray", fill = "red") + coord_flip() + labs(title = "Quad Gram Plot") + xlab("Frequency Count") + ylab("Word")
+
+wordcloud(quadgramsort$Word,quadgramsort$frequency,min.freq = 100,max.words = 100,random.order = FALSE, colors = brewer.pal(8,"Dark2"))
+```
+
+## Observations and Future Plans
+* Plan is to consider a bigger subset data.
+* Create a prediction algorithm and Shiny app.
+* Plan is to use the next plotted n-gram to predict the next word in a user text.
+* Plan is to create a Shiny App that will take this text user input and predict based on these n-gram algorithms.
+

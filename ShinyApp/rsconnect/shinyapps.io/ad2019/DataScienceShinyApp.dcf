@@ -1,0 +1,12 @@
+name: DataScienceShinyApp
+title: DataScienceShinyApp
+username:
+account: ad2019
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 961201
+bundleId: 2124757
+url: https://ad2019.shinyapps.io/DataScienceShinyApp/
+when: 1559471947.43241
+asMultiple: FALSE
+asStatic: FALSE
